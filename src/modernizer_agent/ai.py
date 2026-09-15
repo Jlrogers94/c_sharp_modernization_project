@@ -92,7 +92,7 @@ class GeminiClient:
 
     def _build_body(self, prompt: str, *, json_mode: bool) -> dict[str, Any]:
         cfg = self.config.gemini
-        if cfg.api_style in {"google", "genai_mil"}:
+        if cfg.api_style == "google":
             body: dict[str, Any] = {
                 "contents": [{"role": "user", "parts": [{"text": prompt}]}],
                 "generationConfig": {
@@ -103,6 +103,21 @@ class GeminiClient:
             if json_mode:
                 body["generationConfig"]["responseMimeType"] = "application/json"
             return body
+        if cfg.api_style == "genai_mil":
+            system_prompt = cfg.system_prompt.strip()
+            if json_mode:
+                system_prompt += (
+                    " Return only valid JSON for this request. Do not use Markdown fences or add explanatory text outside the JSON value."
+                )
+            return {
+                "model": cfg.model,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt},
+                ],
+                "temperature": cfg.temperature,
+                "max_tokens": cfg.max_output_tokens,
+            }
         if cfg.api_style == "bearer":
             return {
                 "model": cfg.model,
@@ -141,7 +156,7 @@ class GeminiClient:
         if not isinstance(payload, dict):
             raise AIProviderError("AI response JSON was not an object" + self._request_id_suffix(request_id))
 
-        if cfg.api_style in {"google", "genai_mil"}:
+        if cfg.api_style == "google":
             feedback = payload.get("promptFeedback")
             if isinstance(feedback, dict) and feedback.get("blockReason"):
                 raise AIResponseBlockedError(
@@ -172,6 +187,37 @@ class GeminiClient:
             except (KeyError, TypeError) as exc:
                 raise AIProviderError(
                     "AI completion candidate had an unexpected shape" + self._request_id_suffix(request_id)
+                ) from exc
+            if not text:
+                raise AIProviderError("AI completion was empty" + self._request_id_suffix(request_id))
+            return text
+
+        if cfg.api_style == "genai_mil":
+            try:
+                choice = payload["choices"][0]
+            except (KeyError, IndexError, TypeError) as exc:
+                raise AIProviderError(
+                    "GenAI.mil response did not contain a chat-completion choice"
+                    + self._request_id_suffix(request_id)
+                ) from exc
+
+            finish_reason = str(choice.get("finish_reason", "")).lower()
+            if finish_reason in {"length", "max_tokens"}:
+                raise AIResponseTruncatedError(
+                    "AI response was truncated at the output-token limit"
+                    + self._request_id_suffix(request_id)
+                )
+            if finish_reason in {"content_filter", "safety", "blocked"}:
+                raise AIResponseBlockedError(
+                    f"AI response was blocked ({finish_reason})"
+                    + self._request_id_suffix(request_id)
+                )
+            try:
+                text = choice["message"]["content"].strip()
+            except (KeyError, TypeError, AttributeError) as exc:
+                raise AIProviderError(
+                    "GenAI.mil chat-completion choice had an unexpected shape"
+                    + self._request_id_suffix(request_id)
                 ) from exc
             if not text:
                 raise AIProviderError("AI completion was empty" + self._request_id_suffix(request_id))
