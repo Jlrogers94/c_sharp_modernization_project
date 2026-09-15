@@ -15,7 +15,21 @@ context_char_budget = 180000
 endpoint = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 model = "gemini-2.5-pro"
 api_key_env = "GEMINI_API_KEY"
-api_style = "google" # google | bearer | simple
+api_style = "google" # google | genai_mil | bearer | simple
+# GenAI.mil currently appears to expose an OpenAI-compatible chat-completions
+# body/response. Use api_style="genai_mil" and copy the endpoint/auth details
+# from the authorized API page. Do not commit the key itself. Example:
+# endpoint = "https://REPLACE-WITH-GENAI-MIL-HOST/v1/chat/completions"
+# model = "google/gemini-3.1-pro"
+# api_key_env = "GENAI_MIL_API_KEY"
+# api_style = "genai_mil"
+# auth_style = "header"       # or bearer/query if documented
+# api_key_header = "REPLACE-WITH-DOCUMENTED-HEADER"
+# api_key_prefix = ""
+# allowed_hosts = ["REPLACE-WITH-GENAI-MIL-HOST"]
+max_retries = 3
+retry_backoff_seconds = 1.0
+retry_status_codes = [408, 429, 500, 502, 503, 504]
 timeout_seconds = 180
 max_output_tokens = 32768
 temperature = 0.1
