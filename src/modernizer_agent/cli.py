@@ -6,6 +6,7 @@ from pathlib import Path
 import sys
 
 from .config import AgentConfig
+from .ai import GeminiClient, parse_json_response
 from .db import Database
 from .orchestrator import ModernizerAgent
 from .templates import initialize_repo
@@ -24,6 +25,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("init", help="Create modernizer.toml and .modernizer architecture rules")
     sub.add_parser("index", help="Index C#, projects and TestComplete artifacts")
     sub.add_parser("stats", help="Show local index statistics")
+    sub.add_parser("ai-smoke", help="Send a harmless fixed prompt to verify the configured AI endpoint; no repository source is included")
 
     s = sub.add_parser("search", help="Search indexed code")
     s.add_argument("query")
@@ -61,6 +63,20 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     config = AgentConfig.load(root, args.config)
+    if args.command == "ai-smoke":
+        try:
+            text = GeminiClient(config).complete(
+                'Return only this JSON object: {"status":"ok"}', json_mode=True
+            )
+            parsed = parse_json_response(text)
+            if not isinstance(parsed, dict) or parsed.get("status") != "ok":
+                raise RuntimeError("AI smoke response did not contain the expected status")
+            dump({"status": "ok", "provider": config.gemini.api_style, "model": config.gemini.model})
+            return 0
+        except Exception as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 2
+
     if args.command in {"stats", "search", "create-task"}:
         db = Database(config.db_path)
         try:
