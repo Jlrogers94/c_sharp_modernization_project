@@ -4,7 +4,7 @@ import json
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterable, Iterator
+from typing import Iterable, Iterator, Sequence
 
 
 SCHEMA = """
@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS files (
     sha256 TEXT NOT NULL,
     loc INTEGER NOT NULL DEFAULT 0,
     size_bytes INTEGER NOT NULL DEFAULT 0,
+    mtime_ns INTEGER NOT NULL DEFAULT 0,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -132,6 +133,20 @@ CREATE TABLE IF NOT EXISTS validation_runs (
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS scan_runs (
+    id INTEGER PRIMARY KEY,
+    duration_ms INTEGER NOT NULL,
+    discovered_files INTEGER NOT NULL,
+    changed_files INTEGER NOT NULL,
+    unchanged_files INTEGER NOT NULL,
+    deleted_files INTEGER NOT NULL,
+    hashed_files INTEGER NOT NULL,
+    bytes_hashed INTEGER NOT NULL,
+    relinked_references INTEGER NOT NULL,
+    metrics_json TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE VIRTUAL TABLE IF NOT EXISTS code_fts USING fts5(
     path UNINDEXED,
     symbol,
@@ -141,6 +156,11 @@ CREATE VIRTUAL TABLE IF NOT EXISTS code_fts USING fts5(
 """
 
 
+def _chunks(values: Sequence, size: int = 350):
+    for i in range(0, len(values), size):
+        yield values[i:i + size]
+
+
 class Database:
     def __init__(self, path: str | Path):
         self.path = Path(path)
@@ -148,6 +168,13 @@ class Database:
         self._conn = sqlite3.connect(self.path)
         self._conn.row_factory = sqlite3.Row
         self._conn.executescript(SCHEMA)
+        self._migrate_schema()
+
+    def _migrate_schema(self) -> None:
+        columns = {row["name"] for row in self._conn.execute("PRAGMA table_info(files)")}
+        if "mtime_ns" not in columns:
+            self._conn.execute("ALTER TABLE files ADD COLUMN mtime_ns INTEGER NOT NULL DEFAULT 0")
+            self._conn.commit()
 
     def close(self) -> None:
         self._conn.close()
@@ -170,19 +197,93 @@ class Database:
     def query(self, sql: str, params: tuple = ()) -> list[sqlite3.Row]:
         return list(self._conn.execute(sql, params))
 
-    def upsert_file(self, path: str, kind: str, project: str | None, sha256: str, loc: int, size_bytes: int) -> int:
+    def indexed_files(self) -> dict[str, sqlite3.Row]:
+        return {
+            row["path"]: row
+            for row in self.query("SELECT id,path,kind,project,sha256,loc,size_bytes,mtime_ns FROM files")
+        }
+
+    def upsert_file(
+        self,
+        path: str,
+        kind: str,
+        project: str | None,
+        sha256: str,
+        loc: int,
+        size_bytes: int,
+        mtime_ns: int = 0,
+    ) -> int:
         self._conn.execute(
-            """INSERT INTO files(path,kind,project,sha256,loc,size_bytes)
-               VALUES(?,?,?,?,?,?)
+            """INSERT INTO files(path,kind,project,sha256,loc,size_bytes,mtime_ns)
+               VALUES(?,?,?,?,?,?,?)
                ON CONFLICT(path) DO UPDATE SET kind=excluded.kind, project=excluded.project,
                  sha256=excluded.sha256, loc=excluded.loc, size_bytes=excluded.size_bytes,
-                 updated_at=CURRENT_TIMESTAMP""",
-            (path, kind, project, sha256, loc, size_bytes),
+                 mtime_ns=excluded.mtime_ns, updated_at=CURRENT_TIMESTAMP""",
+            (path, kind, project, sha256, loc, size_bytes, mtime_ns),
         )
         self._conn.commit()
         return int(self._conn.execute("SELECT id FROM files WHERE path=?", (path,)).fetchone()[0])
 
-    def replace_symbols(self, file_id: int, symbols: Iterable[dict], references: Iterable[dict], source_text: str, path: str) -> None:
+    def update_file_metadata(self, path: str, project: str | None, size_bytes: int, mtime_ns: int) -> None:
+        self.execute(
+            "UPDATE files SET project=?,size_bytes=?,mtime_ns=?,updated_at=CURRENT_TIMESTAMP WHERE path=?",
+            (project, size_bytes, mtime_ns, path),
+        )
+
+    def symbol_target_names(self, file_ids: Sequence[int]) -> set[str]:
+        if not file_ids:
+            return set()
+        names: set[str] = set()
+        ids = list(dict.fromkeys(int(x) for x in file_ids))
+        for chunk in _chunks(ids, 500):
+            q = ",".join("?" for _ in chunk)
+            for row in self._conn.execute(
+                f"SELECT name,full_name FROM symbols WHERE file_id IN ({q})", tuple(chunk)
+            ):
+                names.add(row["name"])
+                names.add(row["full_name"])
+        return names
+
+    def delete_indexed_files(self, paths: Sequence[str]) -> int:
+        paths = list(dict.fromkeys(paths))
+        if not paths:
+            return 0
+        with self.transaction() as conn:
+            deleted = 0
+            for chunk in _chunks(paths, 400):
+                q = ",".join("?" for _ in chunk)
+                conn.execute(f"DELETE FROM code_fts WHERE path IN ({q})", tuple(chunk))
+                conn.execute(f"DELETE FROM functional_tests WHERE path IN ({q})", tuple(chunk))
+                cur = conn.execute(f"DELETE FROM files WHERE path IN ({q})", tuple(chunk))
+                deleted += cur.rowcount if cur.rowcount != -1 else 0
+            return deleted
+
+    def delete_functional_tests_for_path(self, path: str) -> None:
+        self.execute("DELETE FROM functional_tests WHERE path=?", (path,))
+
+    def reconcile_projects(self, current_paths: set[str]) -> int:
+        existing = {row["path"] for row in self.query("SELECT path FROM projects")}
+        stale = sorted(existing - current_paths)
+        if not stale:
+            return 0
+        with self.transaction() as conn:
+            deleted = 0
+            for chunk in _chunks(stale, 400):
+                q = ",".join("?" for _ in chunk)
+                cur = conn.execute(f"DELETE FROM projects WHERE path IN ({q})", tuple(chunk))
+                deleted += cur.rowcount if cur.rowcount != -1 else 0
+            return deleted
+
+    def replace_symbols(
+        self,
+        file_id: int,
+        symbols: Iterable[dict],
+        references: Iterable[dict],
+        source_text: str,
+        path: str,
+    ) -> None:
+        symbols = list(symbols)
+        references = list(references)
         with self.transaction() as conn:
             conn.execute("DELETE FROM references_graph WHERE source_file_id=?", (file_id,))
             conn.execute("DELETE FROM symbols WHERE file_id=?", (file_id,))
@@ -192,11 +293,22 @@ class Database:
                 cur = conn.execute(
                     """INSERT INTO symbols(file_id,kind,namespace,name,full_name,signature,start_line,end_line)
                        VALUES(?,?,?,?,?,?,?,?)""",
-                    (file_id, s["kind"], s.get("namespace"), s["name"], s["full_name"], s.get("signature"), s["start_line"], s["end_line"]),
+                    (
+                        file_id,
+                        s["kind"],
+                        s.get("namespace"),
+                        s["name"],
+                        s["full_name"],
+                        s.get("signature"),
+                        s["start_line"],
+                        s["end_line"],
+                    ),
                 )
                 symbol_ids[(s["full_name"], s["start_line"])] = int(cur.lastrowid)
-                snippet = s.get("content", "")
-                conn.execute("INSERT INTO code_fts(path,symbol,content) VALUES(?,?,?)", (path, s["full_name"], snippet))
+                conn.execute(
+                    "INSERT INTO code_fts(path,symbol,content) VALUES(?,?,?)",
+                    (path, s["full_name"], s.get("content", "")),
+                )
             if not symbols:
                 conn.execute("INSERT INTO code_fts(path,symbol,content) VALUES(?,?,?)", (path, "", source_text))
             for r in references:
@@ -207,26 +319,83 @@ class Database:
                 conn.execute(
                     """INSERT INTO references_graph(source_symbol_id,source_file_id,target_name,reference_type,line)
                        VALUES(?,?,?,?,?)""",
-                    (source_symbol_id, file_id, r["target_name"], r.get("reference_type", "identifier"), r.get("line")),
+                    (
+                        source_symbol_id,
+                        file_id,
+                        r["target_name"],
+                        r.get("reference_type", "identifier"),
+                        r.get("line"),
+                    ),
                 )
 
-    def relink_references(self) -> None:
-        # Keep this compatible with older SQLite builds that are common on locked-down
-        # enterprise Python installations; avoid a correlated UPDATE dependency.
-        refs = list(self._conn.execute("SELECT id,target_name FROM references_graph"))
-        for ref in refs:
-            target = self._conn.execute(
-                """SELECT id FROM symbols
-                   WHERE name=? OR full_name=?
-                   ORDER BY CASE WHEN full_name=? THEN 0 ELSE 1 END, id
-                   LIMIT 1""",
-                (ref["target_name"], ref["target_name"], ref["target_name"]),
-            ).fetchone()
-            self._conn.execute(
-                "UPDATE references_graph SET target_symbol_id=? WHERE id=?",
-                (int(target[0]) if target else None, int(ref["id"])),
-            )
-        self._conn.commit()
+    def relink_references(
+        self,
+        source_file_ids: Sequence[int] | None = None,
+        target_names: set[str] | None = None,
+    ) -> int:
+        """Relink only references affected by changed source files or changed target symbols.
+
+        Calling with no filters preserves the v0.1 full-relink behavior.
+        """
+        selected: dict[int, sqlite3.Row] = {}
+        source_ids = list(dict.fromkeys(int(x) for x in (source_file_ids or [])))
+        names_filter = sorted(target_names or set())
+
+        if not source_ids and not names_filter:
+            refs = list(self._conn.execute("SELECT id,target_name FROM references_graph"))
+            selected = {int(r["id"]): r for r in refs}
+        else:
+            for chunk in _chunks(source_ids, 500):
+                q = ",".join("?" for _ in chunk)
+                for row in self._conn.execute(
+                    f"SELECT id,target_name FROM references_graph WHERE source_file_id IN ({q})", tuple(chunk)
+                ):
+                    selected[int(row["id"])] = row
+            for chunk in _chunks(names_filter, 400):
+                q = ",".join("?" for _ in chunk)
+                for row in self._conn.execute(
+                    f"SELECT id,target_name FROM references_graph WHERE target_name IN ({q})", tuple(chunk)
+                ):
+                    selected[int(row["id"])] = row
+
+        if not selected:
+            return 0
+
+        wanted = sorted({row["target_name"] for row in selected.values()})
+        exact_full: dict[str, int] = {}
+        by_name: dict[str, int] = {}
+        for chunk in _chunks(wanted, 350):
+            q = ",".join("?" for _ in chunk)
+            params = tuple(chunk) + tuple(chunk)
+            sql = f"SELECT id,name,full_name FROM symbols WHERE name IN ({q}) OR full_name IN ({q}) ORDER BY id"
+            for row in self._conn.execute(sql, params):
+                exact_full.setdefault(row["full_name"], int(row["id"]))
+                by_name.setdefault(row["name"], int(row["id"]))
+
+        updates = []
+        for ref_id in sorted(selected):
+            target = selected[ref_id]["target_name"]
+            updates.append((exact_full.get(target) or by_name.get(target), ref_id))
+        with self.transaction() as conn:
+            conn.executemany("UPDATE references_graph SET target_symbol_id=? WHERE id=?", updates)
+        return len(updates)
+
+    def record_scan_run(self, metrics: dict) -> None:
+        self.execute(
+            """INSERT INTO scan_runs(duration_ms,discovered_files,changed_files,unchanged_files,deleted_files,
+               hashed_files,bytes_hashed,relinked_references,metrics_json) VALUES(?,?,?,?,?,?,?,?,?)""",
+            (
+                int(metrics["duration_ms"]),
+                int(metrics["discovered_files"]),
+                int(metrics["changed_files"]),
+                int(metrics["unchanged_files"]),
+                int(metrics["deleted_files"]),
+                int(metrics["hashed_files"]),
+                int(metrics["bytes_hashed"]),
+                int(metrics["relinked_references"]),
+                json.dumps(metrics, sort_keys=True),
+            ),
+        )
 
     def search(self, query: str, limit: int = 20) -> list[sqlite3.Row]:
         try:
@@ -243,9 +412,19 @@ class Database:
 
     def stats(self) -> dict:
         tables = ["files", "projects", "symbols", "references_graph", "functional_tests", "tasks", "decisions"]
-        return {t: int(self._conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]) for t in tables}
+        return {
+            t: int(self._conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0])
+            for t in tables
+        }
 
-    def create_task(self, task_key: str, title: str, target: str | None, priority: int, acceptance_criteria: str) -> None:
+    def create_task(
+        self,
+        task_key: str,
+        title: str,
+        target: str | None,
+        priority: int,
+        acceptance_criteria: str,
+    ) -> None:
         self.execute(
             """INSERT INTO tasks(task_key,title,target,priority,acceptance_criteria)
                VALUES(?,?,?,?,?)
@@ -270,7 +449,16 @@ class Database:
         set_clause = ", ".join(f"{k}=?" for k in use) + ", updated_at=CURRENT_TIMESTAMP"
         self.execute(f"UPDATE tasks SET {set_clause} WHERE task_key=?", tuple(use.values()) + (task_key,))
 
-    def add_validation_run(self, task_id: int | None, stage: str, command: str, success: bool, exit_code: int | None, duration_ms: int, output: str) -> None:
+    def add_validation_run(
+        self,
+        task_id: int | None,
+        stage: str,
+        command: str,
+        success: bool,
+        exit_code: int | None,
+        duration_ms: int,
+        output: str,
+    ) -> None:
         self.execute(
             "INSERT INTO validation_runs(task_id,stage,command,success,exit_code,duration_ms,output) VALUES(?,?,?,?,?,?,?)",
             (task_id, stage, command, 1 if success else 0, exit_code, duration_ms, output[-100_000:]),
