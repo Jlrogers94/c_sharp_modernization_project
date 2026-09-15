@@ -4,6 +4,19 @@ This file maps the **real repository path** of every current project file to the
 
 After the secure-project transfer, this file is authoritative for translating between flattened Project filenames and real repository paths. Do not infer a path from a flattened filename when this file provides the mapping.
 
+## Prebuilt upload bundle
+
+The repository includes a disposable `flattened_repo/` folder containing upload-ready copies of every authoritative project file using the filenames below. You do **not** need to rename files manually.
+
+For transfer:
+
+1. Open `flattened_repo/` locally.
+2. Select/upload all files inside that folder to the secure ChatGPT Project.
+3. Do not upload the `flattened_repo` directory name as part of the logical repository path; the files inside it already have their flattened upload names.
+4. After upload, delete `flattened_repo/` from the local working copy before normal development/indexing if desired.
+
+`flattened_repo/` is a transfer artifact only. It is intentionally **not** part of the authoritative file map below and must never be recursively copied into itself.
+
 ## Naming convention
 
 1. Folder separators `/` become `__` in the uploaded filename.
@@ -69,16 +82,17 @@ When an AI proposes an updated `examples__modernizer.toml.txt`, the user should 
 
 Before starting development in the secure Project:
 
-- Upload every file in the table above.
-- Rename files to the upload filenames shown above before upload.
+- Upload every file from `flattened_repo/`.
+- Do not rename anything manually; the bundle already uses the upload filenames shown above.
 - Do not alter file contents just to make them uploadable.
 - Confirm `REPOSITORY_MAP.md`, `PROJECT_INSTRUCTIONS.md`, `HANDOFF.md`, `ISSUES.md`, `DEVELOPMENT_PLAN.md`, `SECURE_WORKFLOW.md`, and `CHANGELOG.md` are visible in the Project.
 - Paste the contents of `PROJECT_INSTRUCTIONS.md` into the Project Instructions field.
 - Complete `SEC-001` in `ISSUES.md` before additional implementation work.
+- Delete the local `flattened_repo/` folder after upload if you do not want the disposable bundle in the working copy.
 
 ## When files are added or removed later
 
-Any change that creates, deletes, or renames a repository file must update this map in the same change set.
+Any change that creates, deletes, or renames an authoritative repository file must update this map in the same change set. If another secure-project transfer is needed later, regenerate `flattened_repo/` from the current authoritative files rather than editing the bundle by hand.
 
 For a new path:
 
