@@ -30,6 +30,8 @@ functional_test_commands = []
 timeout_seconds = 1800
 
 [scan]
+# Parsing can be parallelized, but SQLite writes are always applied deterministically in path order.
+workers = 1
 exclude_dirs = [".git", ".vs", "bin", "obj", "packages", "node_modules", ".modernizer"]
 '''
 
