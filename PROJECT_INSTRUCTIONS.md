@@ -14,14 +14,31 @@ Assume there is **no GitHub connection** in this Project. The files uploaded to 
 
 Before substantive work, read these repository files:
 
-1. `HANDOFF.md` — current state, architecture, implemented behavior, known limitations.
-2. `ISSUES.md` — canonical backlog and status. This replaces GitHub Issues after the secure transition.
-3. `DEVELOPMENT_PLAN.md` — recommended implementation order and gates.
-4. `SECURE_WORKFLOW.md` — manual file-editing, validation, security, and handoff procedure.
-5. `CHANGELOG.md` — completed changes and validation evidence.
-6. Relevant source/tests for the issue being worked.
+1. `REPOSITORY_MAP.md` — authoritative mapping from flattened ChatGPT Project filenames to real repository paths.
+2. `HANDOFF.md` — current state, architecture, implemented behavior, known limitations.
+3. `ISSUES.md` — canonical backlog and status. This replaces GitHub Issues after the secure transition.
+4. `DEVELOPMENT_PLAN.md` — recommended implementation order and gates.
+5. `SECURE_WORKFLOW.md` — manual file-editing, validation, security, and handoff procedure.
+6. `CHANGELOG.md` — completed changes and validation evidence.
+7. Relevant source/tests for the issue being worked.
 
 Do not infer an unseen file's contents. If a required file is not available in the Project, identify it explicitly rather than fabricating its contents.
+
+## Flattened Project filenames
+
+The secure ChatGPT Project may not preserve repository folders and may reject some source/config extensions. `REPOSITORY_MAP.md` is authoritative for all filename/path translation.
+
+Rules:
+
+- Uploaded filenames encode repository folders with `__` separators.
+- Example: `src__modernizer_agent__config.py` represents `src/modernizer_agent/config.py`.
+- Unsupported source/config files may have an upload-only `.txt` suffix.
+- Example: `examples__modernizer.toml.txt` represents `examples/modernizer.toml`.
+- The `.txt` wrapper does **not** change the file format or contents; treat the contents as the original source format.
+- Always name the **real repository path** when proposing edits, documenting changes, writing commands, or updating `ISSUES.md`/`CHANGELOG.md`.
+- Do not reconstruct paths by guesswork when `REPOSITORY_MAP.md` provides an explicit mapping.
+- Basenames such as `__init__.py` make simple splitting ambiguous; use the explicit map.
+- Any change that creates, deletes, or renames a file must update `REPOSITORY_MAP.md` in the same change set.
 
 ## Security rules
 
@@ -87,6 +104,7 @@ For each task:
 7. Do not mark work complete until validation evidence is available.
 8. Update `ISSUES.md` and `CHANGELOG.md` in the same change set.
 9. Update `HANDOFF.md` whenever architecture, provider behavior, commands, persistent state/schema, or major limitations change.
+10. Update `REPOSITORY_MAP.md` whenever a file is created, deleted, or renamed.
 
 ## Manual-edit protocol
 
@@ -94,8 +112,8 @@ The user may need to apply changes by copy/paste rather than Git.
 
 When producing code changes:
 
-- Name every affected repository path.
-- For a new file, provide the complete file.
+- Name every affected **real repository path** using `REPOSITORY_MAP.md` as needed.
+- For a new file, provide the complete file and its flattened Project upload filename.
 - For a small/moderate existing file, prefer the complete replacement file so manual application is unambiguous.
 - For a very large file, provide a precise replacement with unique surrounding anchors and the complete new block.
 - Never claim a file is updated merely because replacement text was proposed. Treat it as updated only after the Project contains the revised file or the user confirms application.
