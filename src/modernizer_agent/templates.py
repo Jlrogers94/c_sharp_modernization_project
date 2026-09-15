@@ -15,7 +15,17 @@ context_char_budget = 180000
 endpoint = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 model = "gemini-2.5-pro"
 api_key_env = "GEMINI_API_KEY"
-api_style = "google" # google | bearer | simple
+api_style = "google" # google | genai_mil | bearer | simple
+# For GenAI.mil, use api_style="genai_mil" and copy the endpoint/model/auth details
+# from the authorized GenAI.mil API instructions. Do not commit the key itself.
+# GenAI.mil mode requires an explicit hostname allowlist before any request is sent.
+# auth_style = "header"       # auto | header | bearer | query
+# api_key_header = "x-goog-api-key"
+# api_key_prefix = ""
+# allowed_hosts = ["REPLACE-WITH-AUTHORIZED-GENAI-MIL-HOST"]
+max_retries = 3
+retry_backoff_seconds = 1.0
+retry_status_codes = [408, 429, 500, 502, 503, 504]
 timeout_seconds = 180
 max_output_tokens = 32768
 temperature = 0.1
