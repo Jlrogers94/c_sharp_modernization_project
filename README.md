@@ -73,44 +73,33 @@ The deterministic index includes C# source, `.csproj` metadata, symbols, rough d
 Edit `modernizer.toml`, then set your key in the environment:
 
 ```powershell
-$env:GEMINI_API_KEY = "..."
+$env:GENAI_MIL_API_KEY = "..."
 ```
 
-The default request shape is the Gemini `generateContent` JSON shape. This also works with enterprise gateways that proxy that API unchanged.
+The default provider uses Gemini's native `generateContent` shape. For **GenAI.mil**, the currently expected contract is OpenAI-compatible chat completions: a request containing `model`, `messages`, `temperature`, and `max_tokens`, with completion text returned at `choices[0].message.content`. The exact authorized hostname and authentication header still come from the API page in your environment.
 
-If your internal endpoint expects `Authorization: Bearer ...` with a simple completion body, set:
-
-```toml
-[gemini]
-api_style = "bearer"
-endpoint = "https://your-internal-endpoint.example/completions"
-model = "your-model-name"
-```
-
-If your internal endpoint has a different request or response contract, adapt **only** `src/modernizer_agent/ai.py`; the rest of the agent is intentionally provider-independent.
-
-## GenAI.mil provider mode
-
-The production target for this project is expected to use the GenAI.mil Gemini API. v0.1 includes a guarded `genai_mil` provider mode, but deliberately does **not** guess the tenant URL, model identifier, or authentication header. Copy those values from the authorized GenAI.mil API page when available.
+Example GenAI.mil configuration:
 
 ```toml
 [gemini]
 api_style = "genai_mil"
-endpoint = "https://REPLACE-WITH-GENAI-MIL-ENDPOINT/{model}:generateContent"
-model = "REPLACE-WITH-GENAI-MIL-MODEL"
+endpoint = "https://YOUR-GENAI-MIL-HOST/v1/chat/completions"
+model = "google/gemini-3.1-pro"
 api_key_env = "GENAI_MIL_API_KEY"
-auth_style = "header" # or bearer/query if the authorized instructions specify it
-api_key_header = "x-goog-api-key" # placeholder; use the documented header
-api_key_prefix = ""
-allowed_hosts = ["REPLACE-WITH-AUTHORIZED-GENAI-MIL-HOST"]
-max_retries = 3
-retry_backoff_seconds = 1.0
-retry_status_codes = [408, 429, 500, 502, 503, 504]
+auth_style = "header"
+api_key_header = "REPLACE-WITH-DOCUMENTED-HEADER"
+allowed_hosts = ["YOUR-GENAI-MIL-HOST"]
 ```
 
-GenAI.mil mode refuses to send any request until `allowed_hosts` explicitly contains the configured endpoint hostname. API keys are read only from the named environment variable. HTTP errors and parsing failures do not echo response bodies, prompts, or credentials into exception messages.
+`genai_mil` mode uses a system message plus the agent prompt as the user message. JSON-mode calls strengthen the system message to require JSON-only output rather than assuming the gateway supports a provider-specific `response_format` option. Authentication remains configurable as `header`, `bearer`, or `query`.
 
-After configuring the real endpoint, verify connectivity without sending repository source:
+If another internal endpoint uses a different contract, adapt **only** `src/modernizer_agent/ai.py`; the rest of the agent is intentionally provider-independent.
+
+## GenAI.mil safety and smoke test
+
+GenAI.mil mode refuses to send a request until `allowed_hosts` explicitly contains the configured endpoint hostname. API keys are read only from the configured environment variable. HTTP errors and parsing failures do not echo response bodies, prompts, or credentials into exception messages.
+
+After filling in the exact endpoint/auth values from the GenAI.mil API page, verify connectivity without sending repository source:
 
 ```bash
 modernizer --repo C:\src\LegacyProduct ai-smoke
