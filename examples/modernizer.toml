@@ -4,10 +4,20 @@ max_repair_attempts = 4
 context_char_budget = 180000
 
 [gemini]
-endpoint = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-model = "gemini-2.5-pro"
-api_key_env = "GEMINI_API_KEY"
-api_style = "google"
+# Fill in the exact authorized GenAI.mil endpoint/host shown in your environment.
+endpoint = "https://YOUR-GENAI-MIL-HOST/v1/chat/completions"
+model = "google/gemini-3.1-pro"
+api_key_env = "GENAI_MIL_API_KEY"
+api_style = "genai_mil"
+auth_style = "header" # or bearer/query if the API page specifies it
+api_key_header = "REPLACE-WITH-DOCUMENTED-HEADER"
+api_key_prefix = ""
+allowed_hosts = ["YOUR-GENAI-MIL-HOST"]
+timeout_seconds = 180
+max_output_tokens = 32768
+temperature = 0.1
+max_retries = 3
+retry_backoff_seconds = 1.0
 
 [validation]
 build_commands = ["dotnet build LegacyProduct.sln"]
