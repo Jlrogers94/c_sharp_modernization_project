@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 import os
 import tomllib
+from urllib.parse import urlparse
 
 
 @dataclass(slots=True)
@@ -14,7 +15,43 @@ class GeminiConfig:
     timeout_seconds: float = 180.0
     temperature: float = 0.1
     max_output_tokens: int = 32768
-    api_style: str = "google"
+    api_style: str = "google"  # google | genai_mil | bearer | simple
+    system_prompt: str = "You are a careful software modernization assistant. Follow the requested output format exactly."
+    # Authentication can be changed without touching source code. For genai_mil,
+    # set these from the API instructions shown in the authorized environment.
+    auth_style: str = "auto"  # auto | header | bearer | query
+    api_key_header: str = "x-goog-api-key"
+    api_key_prefix: str = ""
+    api_key_query_param: str = "key"
+    allowed_hosts: list[str] = field(default_factory=list)
+    max_retries: int = 3
+    retry_backoff_seconds: float = 1.0
+    retry_status_codes: list[int] = field(default_factory=lambda: [408, 429, 500, 502, 503, 504])
+
+    def resolved_allowed_hosts(self) -> list[str]:
+        if self.allowed_hosts:
+            return [h.lower() for h in self.allowed_hosts]
+        # Native Google mode has a safe known default. Enterprise/genai_mil endpoints
+        # deliberately require an explicit allowlist once the real host is known.
+        if self.api_style == "google":
+            return ["generativelanguage.googleapis.com"]
+        return []
+
+    def validate_endpoint(self, endpoint: str) -> None:
+        parsed = urlparse(endpoint)
+        if parsed.scheme != "https":
+            raise RuntimeError("AI endpoint must use HTTPS")
+        if not parsed.hostname:
+            raise RuntimeError("AI endpoint is missing a hostname")
+        allowed = self.resolved_allowed_hosts()
+        if self.api_style == "genai_mil" and not allowed:
+            raise RuntimeError(
+                "GenAI.mil mode requires gemini.allowed_hosts to be configured with the authorized API hostname"
+            )
+        if allowed and parsed.hostname.lower() not in allowed:
+            raise RuntimeError(
+                f"AI endpoint host '{parsed.hostname}' is not in gemini.allowed_hosts"
+            )
 
 
 @dataclass(slots=True)
@@ -65,6 +102,15 @@ class AgentConfig:
             temperature=float(gemini_raw.get("temperature", gemini_defaults.temperature)),
             max_output_tokens=int(gemini_raw.get("max_output_tokens", gemini_defaults.max_output_tokens)),
             api_style=gemini_raw.get("api_style", gemini_defaults.api_style),
+            system_prompt=gemini_raw.get("system_prompt", gemini_defaults.system_prompt),
+            auth_style=gemini_raw.get("auth_style", gemini_defaults.auth_style),
+            api_key_header=gemini_raw.get("api_key_header", gemini_defaults.api_key_header),
+            api_key_prefix=gemini_raw.get("api_key_prefix", gemini_defaults.api_key_prefix),
+            api_key_query_param=gemini_raw.get("api_key_query_param", gemini_defaults.api_key_query_param),
+            allowed_hosts=list(gemini_raw.get("allowed_hosts", gemini_defaults.allowed_hosts)),
+            max_retries=int(gemini_raw.get("max_retries", gemini_defaults.max_retries)),
+            retry_backoff_seconds=float(gemini_raw.get("retry_backoff_seconds", gemini_defaults.retry_backoff_seconds)),
+            retry_status_codes=[int(x) for x in gemini_raw.get("retry_status_codes", gemini_defaults.retry_status_codes)],
         )
         validation = ValidationConfig(
             build_commands=list(validation_raw.get("build_commands", ["dotnet build"])),
