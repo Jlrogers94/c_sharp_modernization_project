@@ -4,6 +4,19 @@ A small, local Python orchestration agent for incrementally modernizing a large 
 
 The design deliberately keeps **Python in control**. Gemini plans and proposes bounded changes; Python owns repository indexing, context selection, patch safety, builds, tests, TestComplete acceptance checks, rollback, task state, and architectural memory.
 
+## Continuing development in a secure ChatGPT Project
+
+Development is transitioning to a secure ChatGPT Project where the Project files themselves act as the repository and GitHub may not be reachable. The repository therefore contains a self-contained handoff package:
+
+- `PROJECT_INSTRUCTIONS.md` — paste into ChatGPT Project Instructions; durable AI/development/security rules.
+- `HANDOFF.md` — current architecture, implementation state, provider/TestComplete context, limitations, and commands.
+- `ISSUES.md` — canonical backlog after the secure transfer; replaces GitHub Issues.
+- `DEVELOPMENT_PLAN.md` — recommended sequencing and safety gates.
+- `SECURE_WORKFLOW.md` — file-by-file/manual change, validation, security, and snapshot workflow.
+- `CHANGELOG.md` — repository-resident implementation history and validation evidence.
+
+After transfer, start with **SEC-001** in `ISSUES.md`: verify every file is present and run a fresh combined `pytest` + `compileall` baseline before continuing feature work.
+
 ## Why this exists
 
 This tool is designed for a large WinForms codebase with little unit testing and substantial TestComplete functional coverage. Its migration strategy is:
