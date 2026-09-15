@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 
 import httpx
 import pytest
@@ -14,8 +15,8 @@ from modernizer_agent.config import AgentConfig, GeminiConfig
 
 def make_config(tmp_path: Path, **overrides) -> AgentConfig:
     values = dict(
-        endpoint="https://api.genai.mil.test/v1/models/{model}:generateContent",
-        model="gemini-test",
+        endpoint="https://api.genai.mil.test/v1/chat/completions",
+        model="google/gemini-3.1-pro",
         api_key_env="GENAI_MIL_API_KEY",
         api_style="genai_mil",
         auth_style="header",
@@ -32,23 +33,45 @@ def make_config(tmp_path: Path, **overrides) -> AgentConfig:
     )
 
 
-def test_genai_mil_custom_header_and_gemini_shape(tmp_path, monkeypatch):
+def chat_response(content: str = "ok", finish_reason: str = "stop") -> dict:
+    return {
+        "id": "chatcmpl-test",
+        "object": "chat.completion",
+        "model": "google/gemini-3.1-pro",
+        "choices": [
+            {
+                "index": 0,
+                "message": {"role": "assistant", "content": content},
+                "finish_reason": finish_reason,
+            }
+        ],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 2, "total_tokens": 12},
+    }
+
+
+def test_genai_mil_custom_header_and_openai_chat_shape(tmp_path, monkeypatch):
     monkeypatch.setenv("GENAI_MIL_API_KEY", "super-secret")
     seen = {}
 
     def handler(request: httpx.Request):
         seen["auth"] = request.headers.get("x-api-key")
-        seen["body"] = request.content.decode()
+        seen["body"] = json.loads(request.content.decode())
         return httpx.Response(
             200,
             headers={"x-request-id": "req-123"},
-            json={"candidates": [{"finishReason": "STOP", "content": {"parts": [{"text": '{"status":"ok"}'}]}}]},
+            json=chat_response('{"status":"ok"}'),
         )
 
     client = GeminiClient(make_config(tmp_path), transport=httpx.MockTransport(handler), sleep=lambda _: None)
     assert client.complete("hello", json_mode=True) == '{"status":"ok"}'
     assert seen["auth"] == "super-secret"
-    assert "responseMimeType" in seen["body"]
+    assert seen["body"]["model"] == "google/gemini-3.1-pro"
+    assert seen["body"]["messages"][0]["role"] == "system"
+    assert "only valid JSON" in seen["body"]["messages"][0]["content"]
+    assert seen["body"]["messages"][1] == {"role": "user", "content": "hello"}
+    assert seen["body"]["max_tokens"] == 32768
+    assert "contents" not in seen["body"]
+    assert "generationConfig" not in seen["body"]
 
 
 def test_retries_429_then_succeeds(tmp_path, monkeypatch):
@@ -59,7 +82,7 @@ def test_retries_429_then_succeeds(tmp_path, monkeypatch):
         calls["n"] += 1
         if calls["n"] == 1:
             return httpx.Response(429, headers={"Retry-After": "0"})
-        return httpx.Response(200, json={"candidates": [{"finishReason": "STOP", "content": {"parts": [{"text": "ok"}]}}]})
+        return httpx.Response(200, json=chat_response("ok"))
 
     client = GeminiClient(make_config(tmp_path), transport=httpx.MockTransport(handler), sleep=lambda _: None)
     assert client.complete("hello") == "ok"
@@ -86,13 +109,13 @@ def test_truncated_and_blocked_responses_are_rejected(tmp_path, monkeypatch):
     monkeypatch.setenv("GENAI_MIL_API_KEY", "secret")
 
     truncated = httpx.MockTransport(lambda req: httpx.Response(
-        200, json={"candidates": [{"finishReason": "MAX_TOKENS", "content": {"parts": [{"text": "partial"}]}}]}
+        200, json=chat_response("partial", finish_reason="length")
     ))
     with pytest.raises(AIResponseTruncatedError):
         GeminiClient(make_config(tmp_path), transport=truncated, sleep=lambda _: None).complete("hello")
 
     blocked = httpx.MockTransport(lambda req: httpx.Response(
-        200, json={"promptFeedback": {"blockReason": "SAFETY"}}
+        200, json=chat_response("", finish_reason="content_filter")
     ))
     with pytest.raises(AIResponseBlockedError):
         GeminiClient(make_config(tmp_path), transport=blocked, sleep=lambda _: None).complete("hello")
