@@ -23,3 +23,6 @@ retry_backoff_seconds = 1.0
 build_commands = ["dotnet build LegacyProduct.sln"]
 unit_test_commands = ["dotnet test --no-build"]
 functional_test_commands = []
+
+[scan]
+workers = 1

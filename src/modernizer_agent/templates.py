@@ -44,6 +44,7 @@ functional_test_commands = []
 timeout_seconds = 1800
 
 [scan]
+workers = 1
 exclude_dirs = [".git", ".vs", "bin", "obj", "packages", "node_modules", ".modernizer"]
 '''
 
