@@ -33,6 +33,7 @@ class AgentConfig:
     validation: ValidationConfig = field(default_factory=ValidationConfig)
     include_globs: list[str] = field(default_factory=lambda: ["**/*.cs", "**/*.csproj", "**/*.sln"])
     exclude_dirs: list[str] = field(default_factory=lambda: [".git", ".vs", "bin", "obj", "packages", "node_modules", ".modernizer"])
+    scan_workers: int = 1
     max_repair_attempts: int = 4
     context_char_budget: int = 180_000
 
@@ -79,6 +80,7 @@ class AgentConfig:
             validation=validation,
             include_globs=list(scan_raw.get("include_globs", ["**/*.cs", "**/*.csproj", "**/*.sln"])),
             exclude_dirs=list(scan_raw.get("exclude_dirs", [".git", ".vs", "bin", "obj", "packages", "node_modules", ".modernizer"])),
+            scan_workers=max(1, int(scan_raw.get("workers", 1))),
             max_repair_attempts=int(agent_raw.get("max_repair_attempts", 4)),
             context_char_budget=int(agent_raw.get("context_char_budget", 180_000)),
         )
