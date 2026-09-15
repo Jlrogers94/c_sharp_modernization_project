@@ -1,0 +1,15 @@
+[agent]
+state_dir = ".modernizer"
+max_repair_attempts = 4
+context_char_budget = 180000
+
+[gemini]
+endpoint = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+model = "gemini-2.5-pro"
+api_key_env = "GEMINI_API_KEY"
+api_style = "google"
+
+[validation]
+build_commands = ["dotnet build LegacyProduct.sln"]
+unit_test_commands = ["dotnet test --no-build"]
+functional_test_commands = []
