@@ -4,10 +4,30 @@ max_repair_attempts = 4
 context_char_budget = 180000
 
 [gemini]
+# Native Google example. For this project's production environment, switch to
+# api_style="genai_mil" and replace endpoint/model/auth values with the exact
+# values shown by the authorized GenAI.mil API page.
 endpoint = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 model = "gemini-2.5-pro"
 api_key_env = "GEMINI_API_KEY"
-api_style = "google"
+api_style = "google" # google | genai_mil | bearer | simple
+
+# GenAI.mil example placeholders (do not guess these values):
+# endpoint = "https://REPLACE-WITH-GENAI-MIL-ENDPOINT/{model}:generateContent"
+# model = "REPLACE-WITH-GENAI-MIL-MODEL"
+# api_key_env = "GENAI_MIL_API_KEY"
+# api_style = "genai_mil"
+# auth_style = "header" # header | bearer | query
+# api_key_header = "x-goog-api-key"
+# api_key_prefix = ""
+# allowed_hosts = ["REPLACE-WITH-AUTHORIZED-GENAI-MIL-HOST"]
+
+max_retries = 3
+retry_backoff_seconds = 1.0
+retry_status_codes = [408, 429, 500, 502, 503, 504]
+timeout_seconds = 180
+max_output_tokens = 32768
+temperature = 0.1
 
 [validation]
 build_commands = ["dotnet build LegacyProduct.sln"]
