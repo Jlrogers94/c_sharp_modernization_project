@@ -89,6 +89,35 @@ model = "your-model-name"
 
 If your internal endpoint has a different request or response contract, adapt **only** `src/modernizer_agent/ai.py`; the rest of the agent is intentionally provider-independent.
 
+## GenAI.mil provider mode
+
+The production target for this project is expected to use the GenAI.mil Gemini API. v0.1 includes a guarded `genai_mil` provider mode, but deliberately does **not** guess the tenant URL, model identifier, or authentication header. Copy those values from the authorized GenAI.mil API page when available.
+
+```toml
+[gemini]
+api_style = "genai_mil"
+endpoint = "https://REPLACE-WITH-GENAI-MIL-ENDPOINT/{model}:generateContent"
+model = "REPLACE-WITH-GENAI-MIL-MODEL"
+api_key_env = "GENAI_MIL_API_KEY"
+auth_style = "header" # or bearer/query if the authorized instructions specify it
+api_key_header = "x-goog-api-key" # placeholder; use the documented header
+api_key_prefix = ""
+allowed_hosts = ["REPLACE-WITH-AUTHORIZED-GENAI-MIL-HOST"]
+max_retries = 3
+retry_backoff_seconds = 1.0
+retry_status_codes = [408, 429, 500, 502, 503, 504]
+```
+
+GenAI.mil mode refuses to send any request until `allowed_hosts` explicitly contains the configured endpoint hostname. API keys are read only from the named environment variable. HTTP errors and parsing failures do not echo response bodies, prompts, or credentials into exception messages.
+
+After configuring the real endpoint, verify connectivity without sending repository source:
+
+```bash
+modernizer --repo C:\src\LegacyProduct ai-smoke
+```
+
+`ai-smoke` sends only a fixed request asking for `{"status":"ok"}`. Run this successfully before allowing `bootstrap-plan`, `plan-task`, or `run-task` to call the provider.
+
 ## Configure validation
 
 Update the exact commands that work in your environment:
@@ -199,6 +228,6 @@ This is intentionally format-tolerant rather than tightly coupled to one TestCom
 - TestComplete parsing is generic until the tool sees the real project structure.
 - Automatic repair loops are not enabled yet; a failed applied task rolls back instead of repeatedly editing the repository.
 - Git commits/branches are intentionally left to the surrounding environment initially. This keeps the first deployment usable even where Git CLI access is restricted.
-- A custom enterprise Gemini gateway may require a small adapter change in `ai.py`.
+- GenAI.mil provider plumbing is implemented, but the exact authorized endpoint/model/authentication values still must be copied from the GenAI.mil API instructions and verified with `ai-smoke`.
 
 These are intentional first-release boundaries. The first milestone is reliable indexing, bounded context, safe patch generation, and deterministic validation—not unattended autonomous rewriting.
