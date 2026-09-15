@@ -16,6 +16,7 @@ class GeminiConfig:
     temperature: float = 0.1
     max_output_tokens: int = 32768
     api_style: str = "google"  # google | genai_mil | bearer | simple
+    system_prompt: str = "You are a careful software modernization assistant. Follow the requested output format exactly."
     # Authentication can be changed without touching source code. For genai_mil,
     # set these from the API instructions shown in the authorized environment.
     auth_style: str = "auto"  # auto | header | bearer | query
@@ -100,6 +101,7 @@ class AgentConfig:
             temperature=float(gemini_raw.get("temperature", gemini_defaults.temperature)),
             max_output_tokens=int(gemini_raw.get("max_output_tokens", gemini_defaults.max_output_tokens)),
             api_style=gemini_raw.get("api_style", gemini_defaults.api_style),
+            system_prompt=gemini_raw.get("system_prompt", gemini_defaults.system_prompt),
             auth_style=gemini_raw.get("auth_style", gemini_defaults.auth_style),
             api_key_header=gemini_raw.get("api_key_header", gemini_defaults.api_key_header),
             api_key_prefix=gemini_raw.get("api_key_prefix", gemini_defaults.api_key_prefix),
