@@ -1,0 +1,9 @@
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.modernizer/index.db
+.modernizer/logs/
+.modernizer/backups/
+.modernizer/staging/
+*.log
